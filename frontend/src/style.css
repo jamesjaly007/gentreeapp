@@ -1014,6 +1014,12 @@ button:disabled {
   background: rgba(63, 79, 70, 0.08);
 }
 
+.modal-header .modal-close:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .modal-body {
   padding: 8px 18px 12px;
   flex: 1 1 auto;
@@ -1186,6 +1192,36 @@ button:disabled {
   border-radius: var(--radius-sm);
 }
 
+.modal-footer button:disabled {
+  cursor: not-allowed;
+  opacity: 0.88;
+}
+
+.btn-submit-inner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.btn-spinner {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: btn-spin 0.65s linear infinite;
+  vertical-align: -0.12em;
+  flex-shrink: 0;
+}
+
+@keyframes btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .modal-body .field-label {
   margin-top: 2px;
   margin-bottom: 3px;
@@ -1292,6 +1328,23 @@ button:disabled {
   margin-top: 4px;
   flex: 1;
   min-width: 100px;
+}
+
+.actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.88;
+}
+
+.pending-request-row {
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--sage-soft);
+}
+
+.pending-request-row:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
 }
 
 .request-wait {

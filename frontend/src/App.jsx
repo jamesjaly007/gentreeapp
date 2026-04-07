@@ -242,19 +242,20 @@ function joinFrenchAnd(items) {
   return `${items.slice(0, -1).join(", ")} et ${items[items.length - 1]}`;
 }
 
-function Modal({ title, children, onClose, footer, panelClassName = "" }) {
+function Modal({ title, children, onClose, footer, panelClassName = "", closeDisabled = false }) {
   return (
     <div
       className="modal-backdrop"
       role="presentation"
       onClick={(e) => {
+        if (closeDisabled) return;
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className={`modal-panel${panelClassName ? ` ${panelClassName}` : ""}`} role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div className={`modal-panel${panelClassName ? ` ${panelClassName}` : ""}`} role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-busy={closeDisabled || undefined}>
         <div className="modal-header">
           <h2 id="modal-title">{title}</h2>
-          <button type="button" className="modal-close" onClick={onClose} aria-label="Fermer">
+          <button type="button" className="modal-close" onClick={onClose} disabled={closeDisabled} aria-label="Fermer">
             ×
           </button>
         </div>
@@ -262,6 +263,16 @@ function Modal({ title, children, onClose, footer, panelClassName = "" }) {
         {footer && <div className="modal-footer">{footer}</div>}
       </div>
     </div>
+  );
+}
+
+function BtnSubmitContents({ loading, children }) {
+  if (!loading) return children;
+  return (
+    <span className="btn-submit-inner">
+      <span className="btn-spinner" aria-hidden />
+      <span>En cours…</span>
+    </span>
   );
 }
 
@@ -452,6 +463,8 @@ function App() {
   const treeSearchRef = useRef(null);
   const [detailsPersonId, setDetailsPersonId] = useState(0);
   const [photoPreview, setPhotoPreview] = useState(null);
+  const [modalSubmitting, setModalSubmitting] = useState(false);
+  const [pendingAction, setPendingAction] = useState(null);
 
   const activeUser = users.find((u) => u.id === activeUserId) || null;
   const isAdmin = Boolean(activeUser?.isAdmin);
@@ -721,6 +734,8 @@ function App() {
   }, [editPersonId, people]);
 
   function closeModal() {
+    setModalSubmitting(false);
+    setPendingAction(null);
     setModal(null);
   }
 
@@ -741,6 +756,7 @@ function App() {
       setAdminLoginError("Aucun compte administrateur trouvé.");
       return;
     }
+    setModalSubmitting(true);
     try {
       await api.post("/admin/verify-pin", { pin: adminPinDraft });
       sessionStorage.setItem(ADMIN_SESSION_KEY, "true");
@@ -752,6 +768,8 @@ function App() {
       setMessage("Vous êtes connecté en tant qu'administrateur.", "success");
     } catch (err) {
       setAdminLoginError(err.response?.data?.error || "Code administrateur incorrect.");
+    } finally {
+      setModalSubmitting(false);
     }
   }
 
@@ -761,6 +779,7 @@ function App() {
       setChangePinError("La confirmation ne correspond pas au nouveau code.");
       return;
     }
+    setModalSubmitting(true);
     try {
       await api.post("/admin/change-pin", { currentPin: changePin.current, newPin: changePin.next });
       setChangePin({ current: "", next: "", confirm: "" });
@@ -771,6 +790,8 @@ function App() {
     } catch (err) {
       const msg = err.response?.data?.error || err.message || "Une erreur s'est produite.";
       setChangePinError(msg);
+    } finally {
+      setModalSubmitting(false);
     }
   }
 
@@ -798,15 +819,29 @@ function App() {
   }
 
   async function approveRequest(requestId) {
-    if (!activeUserId) return;
-    await api.post(`/requests/${requestId}/approve`, { adminId: activeUserId });
-    await loadAll();
+    if (!activeUserId || pendingAction) return;
+    setPendingAction({ id: requestId, kind: "approve" });
+    try {
+      await api.post(`/requests/${requestId}/approve`, { adminId: activeUserId });
+      await loadAll();
+    } catch (err) {
+      setMessage(err.response?.data?.error || err.message, "error");
+    } finally {
+      setPendingAction(null);
+    }
   }
 
   async function rejectRequest(requestId) {
-    if (!activeUserId) return;
-    await api.post(`/requests/${requestId}/reject`, { adminId: activeUserId, reviewNote: "Refusé depuis l'application." });
-    await loadAll();
+    if (!activeUserId || pendingAction) return;
+    setPendingAction({ id: requestId, kind: "reject" });
+    try {
+      await api.post(`/requests/${requestId}/reject`, { adminId: activeUserId, reviewNote: "Refusé depuis l'application." });
+      await loadAll();
+    } catch (err) {
+      setMessage(err.response?.data?.error || err.message, "error");
+    } finally {
+      setPendingAction(null);
+    }
   }
 
   function fullName(person) {
@@ -861,17 +896,23 @@ function App() {
 
   async function handleAddPersonSubmit(e) {
     e.preventDefault();
+    if (modalSubmitting) return;
+    setModalSubmitting(true);
     try {
       await submitRequest("person", "create", null, newPerson);
       setNewPerson({ ...EMPTY_PERSON_FORM });
       closeModal();
     } catch (err) {
       setMessage(err.response?.data?.error || err.message, "error");
+    } finally {
+      setModalSubmitting(false);
     }
   }
 
   async function handleEditPersonSubmit(e) {
     e.preventDefault();
+    if (modalSubmitting) return;
+    setModalSubmitting(true);
     try {
       await submitRequest("person", "update", editPersonId, editPerson);
       setEditPersonId(0);
@@ -879,22 +920,30 @@ function App() {
       closeModal();
     } catch (err) {
       setMessage(err.response?.data?.error || err.message, "error");
+    } finally {
+      setModalSubmitting(false);
     }
   }
 
   async function handleDeletePersonConfirm(e) {
     e.preventDefault();
+    if (modalSubmitting) return;
+    setModalSubmitting(true);
     try {
       await submitRequest("person", "delete", deletePersonId, {});
       setDeletePersonId(0);
       closeModal();
     } catch (err) {
       setMessage(err.response?.data?.error || err.message, "error");
+    } finally {
+      setModalSubmitting(false);
     }
   }
 
   async function handlePartnerSubmit(e) {
     e.preventDefault();
+    if (modalSubmitting) return;
+    setModalSubmitting(true);
     try {
       await submitRequest("relationship", "create", null, { sourcePersonId: partnerA, targetPersonId: partnerB, relationshipType: "partner" });
       setPartnerA(0);
@@ -903,16 +952,20 @@ function App() {
       closeModal();
     } catch (err) {
       setMessage(err.response?.data?.error || err.message, "error");
+    } finally {
+      setModalSubmitting(false);
     }
   }
 
   async function handleChildBranchSubmit(e) {
     e.preventDefault();
+    if (modalSubmitting) return;
+    if (!activeUserId) {
+      setMessage("Chargement en cours…", "info");
+      return;
+    }
+    setModalSubmitting(true);
     try {
-      if (!activeUserId) {
-        setMessage("Chargement en cours…", "info");
-        return;
-      }
       const { data: d1 } = await api.post("/requests", {
         actorId: activeUserId,
         entityType: "relationship",
@@ -940,6 +993,8 @@ function App() {
       await loadAll();
     } catch (err) {
       setMessage(err.response?.data?.error || err.message, "error");
+    } finally {
+      setModalSubmitting(false);
     }
   }
 
@@ -1391,13 +1446,14 @@ function App() {
         <Modal
           title="Ajouter une personne"
           onClose={closeModal}
+          closeDisabled={modalSubmitting}
           footer={
             <>
-              <button type="button" className="btn-secondary" onClick={closeModal}>
+              <button type="button" className="btn-secondary" onClick={closeModal} disabled={modalSubmitting}>
                 Annuler
               </button>
-              <button type="submit" form="form-add-person">
-                {saveOrRequestLabel}
+              <button type="submit" form="form-add-person" disabled={modalSubmitting}>
+                <BtnSubmitContents loading={modalSubmitting}>{saveOrRequestLabel}</BtnSubmitContents>
               </button>
             </>
           }
@@ -1557,13 +1613,14 @@ function App() {
             setEditPersonId(0);
             closeModal();
           }}
+          closeDisabled={modalSubmitting}
           footer={
             <>
-              <button type="button" className="btn-secondary" onClick={() => { setEditPersonId(0); closeModal(); }}>
+              <button type="button" className="btn-secondary" onClick={() => { setEditPersonId(0); closeModal(); }} disabled={modalSubmitting}>
                 Annuler
               </button>
-              <button type="submit" form="form-edit-person">
-                {saveOrRequestLabel}
+              <button type="submit" form="form-edit-person" disabled={modalSubmitting}>
+                <BtnSubmitContents loading={modalSubmitting}>{saveOrRequestLabel}</BtnSubmitContents>
               </button>
             </>
           }
@@ -1627,13 +1684,16 @@ function App() {
         <Modal
           title="Retirer une personne"
           onClose={() => { setDeletePersonId(0); closeModal(); }}
+          closeDisabled={modalSubmitting}
           footer={
             <>
-              <button type="button" className="btn-secondary" onClick={() => { setDeletePersonId(0); closeModal(); }}>
+              <button type="button" className="btn-secondary" onClick={() => { setDeletePersonId(0); closeModal(); }} disabled={modalSubmitting}>
                 Annuler
               </button>
-              <button type="submit" form="form-delete-person" className="danger">
-                {isAdmin ? "Retirer de l'arbre" : "Demander la suppression"}
+              <button type="submit" form="form-delete-person" className="danger" disabled={modalSubmitting}>
+                <BtnSubmitContents loading={modalSubmitting}>
+                  {isAdmin ? "Retirer de l'arbre" : "Demander la suppression"}
+                </BtnSubmitContents>
               </button>
             </>
           }
@@ -1652,13 +1712,14 @@ function App() {
         <Modal
           title="Lier un couple"
           onClose={closePartnerModal}
+          closeDisabled={modalSubmitting}
           footer={
             <>
-              <button type="button" className="btn-secondary" onClick={closePartnerModal}>
+              <button type="button" className="btn-secondary" onClick={closePartnerModal} disabled={modalSubmitting}>
                 Annuler
               </button>
-              <button type="submit" form="form-partner" disabled={!partnerA || !partnerB || partnerA === partnerB}>
-                {saveOrRequestLabel}
+              <button type="submit" form="form-partner" disabled={modalSubmitting || !partnerA || !partnerB || partnerA === partnerB}>
+                <BtnSubmitContents loading={modalSubmitting}>{saveOrRequestLabel}</BtnSubmitContents>
               </button>
             </>
           }
@@ -1694,13 +1755,18 @@ function App() {
         <Modal
           title="Ajouter une branche enfant"
           onClose={closeChildModal}
+          closeDisabled={modalSubmitting}
           footer={
             <>
-              <button type="button" className="btn-secondary" onClick={closeChildModal}>
+              <button type="button" className="btn-secondary" onClick={closeChildModal} disabled={modalSubmitting}>
                 Annuler
               </button>
-              <button type="submit" form="form-child" disabled={!parent1Id || !childId || parent1Id === childId || parent2Id === childId}>
-                {saveOrRequestLabel}
+              <button
+                type="submit"
+                form="form-child"
+                disabled={modalSubmitting || !parent1Id || !childId || parent1Id === childId || parent2Id === childId}
+              >
+                <BtnSubmitContents loading={modalSubmitting}>{saveOrRequestLabel}</BtnSubmitContents>
               </button>
             </>
           }
@@ -1767,6 +1833,7 @@ function App() {
             setAdminLoginError("");
             closeModal();
           }}
+          closeDisabled={modalSubmitting}
           footer={
             <>
               <button
@@ -1778,11 +1845,12 @@ function App() {
                   setAdminLoginError("");
                   closeModal();
                 }}
+                disabled={modalSubmitting}
               >
                 Annuler
               </button>
-              <button type="submit" form="form-admin-login">
-                Valider
+              <button type="submit" form="form-admin-login" disabled={modalSubmitting}>
+                <BtnSubmitContents loading={modalSubmitting}>Valider</BtnSubmitContents>
               </button>
             </>
           }
@@ -1822,6 +1890,7 @@ function App() {
             setChangePinError("");
             closeModal();
           }}
+          closeDisabled={modalSubmitting}
           footer={
             <>
               <button
@@ -1833,11 +1902,12 @@ function App() {
                   setChangePinError("");
                   closeModal();
                 }}
+                disabled={modalSubmitting}
               >
                 Annuler
               </button>
-              <button type="submit" form="form-change-pin">
-                Enregistrer
+              <button type="submit" form="form-change-pin" disabled={modalSubmitting}>
+                <BtnSubmitContents loading={modalSubmitting}>Enregistrer</BtnSubmitContents>
               </button>
             </>
           }
@@ -1896,13 +1966,54 @@ function App() {
         <Modal
           title="Demandes en attente"
           onClose={closeModal}
+          closeDisabled={Boolean(pendingAction)}
           footer={
-            <button type="button" className="btn-secondary" onClick={closeModal}>
+            <button type="button" className="btn-secondary" onClick={closeModal} disabled={Boolean(pendingAction)}>
               Fermer
             </button>
           }
         >
-          {pendingRequests.length === 0 ? <p>Aucune demande en attente.</p> : pendingRequests.map((r) => <div key={r.id}><strong>{requestTitle(r)}</strong><div className="request-meta">{requestDetails(r)}</div>{isAdmin ? <div className="actions"><button type="button" onClick={() => approveRequest(r.id).catch(()=>{})}>Accepter</button><button type="button" className="danger" onClick={() => rejectRequest(r.id).catch(()=>{})}>Refuser</button></div> : <span className="request-wait">En attente de validation par un administrateur.</span>}</div>)}
+          {pendingRequests.length === 0 ? (
+            <p>Aucune demande en attente.</p>
+          ) : (
+            pendingRequests.map((r) => {
+              const rowBusy = pendingAction?.id === r.id;
+              const approveBusy = rowBusy && pendingAction?.kind === "approve";
+              const rejectBusy = rowBusy && pendingAction?.kind === "reject";
+              return (
+                <div key={r.id} className="pending-request-row">
+                  <strong>{requestTitle(r)}</strong>
+                  <div className="request-meta">{requestDetails(r)}</div>
+                  {isAdmin ? (
+                    <div className="actions">
+                      <button type="button" onClick={() => approveRequest(r.id)} disabled={Boolean(pendingAction)}>
+                        {approveBusy ? (
+                          <span className="btn-submit-inner">
+                            <span className="btn-spinner" aria-hidden />
+                            <span>En cours…</span>
+                          </span>
+                        ) : (
+                          "Accepter"
+                        )}
+                      </button>
+                      <button type="button" className="danger" onClick={() => rejectRequest(r.id)} disabled={Boolean(pendingAction)}>
+                        {rejectBusy ? (
+                          <span className="btn-submit-inner">
+                            <span className="btn-spinner" aria-hidden />
+                            <span>En cours…</span>
+                          </span>
+                        ) : (
+                          "Refuser"
+                        )}
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="request-wait">En attente de validation par un administrateur.</span>
+                  )}
+                </div>
+              );
+            })
+          )}
         </Modal>
       )}
 
