@@ -16,6 +16,7 @@
   --danger: #b91c1c;
   --danger-soft: #fef2f2;
   --radius-lg: 18px;
+  --radius-md: 14px;
   --radius-sm: 10px;
   --shadow: 0 12px 40px rgba(28, 25, 23, 0.08);
   --font-display: "Cormorant Garamond", Georgia, serif;
@@ -1030,6 +1031,55 @@ button:disabled {
 
 .person-details {
   padding: 4px 0 8px;
+}
+
+.person-details-top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px 22px;
+  align-items: flex-start;
+}
+
+.person-details-photo-wrap {
+  flex: 0 0 auto;
+}
+
+.person-details-photo-btn {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  display: block;
+  line-height: 0;
+  box-shadow: 0 2px 14px rgba(63, 79, 70, 0.12);
+}
+
+.person-details-photo-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.person-details-photo {
+  width: 112px;
+  height: 112px;
+  object-fit: cover;
+  display: block;
+  border-radius: var(--radius-lg);
+}
+
+@media (min-width: 480px) {
+  .person-details-photo {
+    width: 128px;
+    height: 128px;
+  }
+}
+
+.person-details-main {
+  flex: 1 1 200px;
+  min-width: 0;
 }
 
 .person-details-lead {

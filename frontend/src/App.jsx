@@ -1555,6 +1555,25 @@ function App() {
             const decLabel = p.gender === "female" ? "Décédée" : p.gender === "male" ? "Décédé" : "Décédé·e";
             return (
               <div className="person-details">
+                <div className="person-details-top">
+                  {p.photoUrl ? (
+                    <div className="person-details-photo-wrap">
+                      <button
+                        type="button"
+                        className="person-details-photo-btn"
+                        onClick={() => openPhotoPreview(p.photoUrl, fullName(p))}
+                        aria-label={`Agrandir la photo de ${fullName(p)}`}
+                      >
+                        <img
+                          src={resolvePhotoUrl(p.photoUrl)}
+                          alt={`Photo de ${fullName(p)}`}
+                          className="person-details-photo"
+                          loading="lazy"
+                        />
+                      </button>
+                    </div>
+                  ) : null}
+                  <div className="person-details-main">
                 <p className="person-details-lead">{intro}</p>
                 <p className="person-details-block">{birthSentence}</p>
                 <p className="person-details-block">
@@ -1600,6 +1619,8 @@ function App() {
                     <p className="person-details-notes">{String(p.notes).trim()}</p>
                   </div>
                 ) : null}
+                  </div>
+                </div>
               </div>
             );
           })()}
