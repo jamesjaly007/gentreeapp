@@ -1,58 +1,57 @@
-PRAGMA foreign_keys = ON;
-
-CREATE TABLE IF NOT EXISTS users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL,
-  is_admin INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+create table if not exists users (
+  id bigint generated always as identity primary key,
+  name text not null,
+  is_admin smallint not null default 0,
+  created_at timestamptz default now()
 );
 
-CREATE TABLE IF NOT EXISTS people (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  first_name TEXT NOT NULL,
-  last_name TEXT NOT NULL,
-  gender TEXT NULL,
-  birth_date TEXT NULL,
-  death_date TEXT NULL,
-  is_deceased INTEGER NOT NULL DEFAULT 0,
-  photo_url TEXT NULL,
-  notes TEXT NULL,
-  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-  updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-  deleted_at TEXT NULL
+create table if not exists people (
+  id bigint generated always as identity primary key,
+  first_name text not null,
+  last_name text not null,
+  gender text null,
+  birth_date text null,
+  death_date text null,
+  is_deceased smallint not null default 0,
+  photo_url text null,
+  notes text null,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  deleted_at timestamptz null
 );
 
-CREATE TABLE IF NOT EXISTS relationships (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  source_person_id INTEGER NOT NULL,
-  target_person_id INTEGER NOT NULL,
-  relationship_type TEXT NOT NULL,
-  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-  deleted_at TEXT NULL,
-  FOREIGN KEY (source_person_id) REFERENCES people(id),
-  FOREIGN KEY (target_person_id) REFERENCES people(id)
+create table if not exists relationships (
+  id bigint generated always as identity primary key,
+  source_person_id bigint not null references people(id),
+  target_person_id bigint not null references people(id),
+  relationship_type text not null,
+  created_at timestamptz default now(),
+  deleted_at timestamptz null
 );
 
-CREATE TABLE IF NOT EXISTS change_requests (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  entity_type TEXT NOT NULL,
-  action_type TEXT NOT NULL,
-  entity_id INTEGER NULL,
-  payload_json TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending',
-  requested_by INTEGER NOT NULL,
-  reviewed_by INTEGER NULL,
-  review_note TEXT NULL,
-  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-  reviewed_at TEXT NULL,
-  FOREIGN KEY (requested_by) REFERENCES users(id),
-  FOREIGN KEY (reviewed_by) REFERENCES users(id)
+create table if not exists change_requests (
+  id bigint generated always as identity primary key,
+  entity_type text not null,
+  action_type text not null,
+  entity_id bigint null,
+  payload_json text not null,
+  status text not null default 'pending',
+  requested_by bigint not null references users(id),
+  reviewed_by bigint null references users(id),
+  review_note text null,
+  created_at timestamptz default now(),
+  reviewed_at timestamptz null
 );
 
-INSERT INTO users (name, is_admin)
-SELECT 'Admin', 1
-WHERE NOT EXISTS (SELECT 1 FROM users WHERE name = 'Admin');
+create table if not exists app_settings (
+  key text primary key,
+  value text not null
+);
 
-INSERT INTO users (name, is_admin)
-SELECT 'Contributor', 0
-WHERE NOT EXISTS (SELECT 1 FROM users WHERE name = 'Contributor');
+insert into users(name, is_admin)
+select 'Admin', 1
+where not exists (select 1 from users where name = 'Admin');
+
+insert into users(name, is_admin)
+select 'Contributor', 0
+where not exists (select 1 from users where name = 'Contributor');

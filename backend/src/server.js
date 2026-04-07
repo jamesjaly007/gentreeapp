@@ -1,7 +1,5 @@
 const express = require("express");
 const cors = require("cors");
-const path = require("path");
-const fs = require("fs/promises");
 const multer = require("multer");
 const { initDb } = require("./db");
 
@@ -9,26 +7,8 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const UPLOADS_DIR = path.resolve(process.cwd(), "uploads");
-const PUBLIC_UPLOAD_PREFIX = "/uploads";
-
-const storage = multer.diskStorage({
-  destination: async (_req, _file, cb) => {
-    try {
-      await fs.mkdir(UPLOADS_DIR, { recursive: true });
-      cb(null, UPLOADS_DIR);
-    } catch (err) {
-      cb(err);
-    }
-  },
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname || "").toLowerCase();
-    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 10)}${ext}`);
-  }
-});
-
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (!file.mimetype || !file.mimetype.startsWith("image/")) {
@@ -38,8 +18,6 @@ const upload = multer({
     cb(null, true);
   }
 });
-
-app.use(PUBLIC_UPLOAD_PREFIX, express.static(UPLOADS_DIR));
 
 const isObject = (value) => value && typeof value === "object" && !Array.isArray(value);
 
@@ -53,12 +31,36 @@ function personDeathDateOrNull(payload) {
   return String(d);
 }
 
+function mapPerson(row) {
+  return {
+    id: row.id,
+    firstName: row.first_name,
+    lastName: row.last_name,
+    gender: row.gender,
+    birthDate: row.birth_date,
+    deathDate: row.death_date,
+    isDeceased: Boolean(row.is_deceased),
+    photoUrl: row.photo_url,
+    notes: row.notes
+  };
+}
+
+function mapRelationship(row) {
+  return {
+    id: row.id,
+    sourcePersonId: row.source_person_id,
+    targetPersonId: row.target_person_id,
+    relationshipType: row.relationship_type
+  };
+}
+
 let db;
 
 app.get("/api/health", async (_req, res, next) => {
   try {
-    const row = await db.get("SELECT 1 AS ok");
-    res.json({ healthy: row.ok === 1 });
+    const { error } = await db.from("users").select("id").limit(1);
+    if (error) throw error;
+    res.json({ healthy: true });
   } catch (error) {
     next(error);
   }
@@ -66,29 +68,27 @@ app.get("/api/health", async (_req, res, next) => {
 
 app.get("/api/users", async (_req, res, next) => {
   try {
-    const rows = await db.all("SELECT id, name, is_admin AS isAdmin FROM users ORDER BY is_admin DESC, name ASC");
-    res.json(rows);
+    const { data, error } = await db.from("users").select("id,name,is_admin").order("is_admin", { ascending: false }).order("name", { ascending: true });
+    if (error) throw error;
+    res.json((data || []).map((u) => ({ id: u.id, name: u.name, isAdmin: Boolean(u.is_admin) })));
   } catch (error) {
     next(error);
   }
 });
 
 async function getStoredAdminPin() {
-  const row = await db.get("SELECT value FROM app_settings WHERE key = 'admin_pin'");
-  if (row?.value) return row.value;
+  const { data, error } = await db.from("app_settings").select("value").eq("key", "admin_pin").maybeSingle();
+  if (error) throw error;
+  if (data?.value) return data.value;
   return process.env.ADMIN_PIN || "admin";
 }
 
 app.post("/api/admin/verify-pin", async (req, res, next) => {
   try {
     const { pin } = req.body;
-    if (typeof pin !== "string") {
-      return res.status(400).json({ error: "Code requis" });
-    }
+    if (typeof pin !== "string") return res.status(400).json({ error: "Code requis" });
     const stored = await getStoredAdminPin();
-    if (pin !== stored) {
-      return res.status(401).json({ error: "Code administrateur incorrect" });
-    }
+    if (pin !== stored) return res.status(401).json({ error: "Code administrateur incorrect" });
     res.json({ ok: true });
   } catch (error) {
     next(error);
@@ -98,31 +98,13 @@ app.post("/api/admin/verify-pin", async (req, res, next) => {
 app.post("/api/admin/change-pin", async (req, res, next) => {
   try {
     const { currentPin, newPin } = req.body;
-    if (typeof currentPin !== "string" || typeof newPin !== "string") {
-      return res.status(400).json({ error: "Codes requis" });
-    }
-    if (newPin.length < 4) {
-      return res.status(400).json({ error: "Le nouveau code doit contenir au moins 4 caractères" });
-    }
+    if (typeof currentPin !== "string" || typeof newPin !== "string") return res.status(400).json({ error: "Codes requis" });
+    if (newPin.length < 4) return res.status(400).json({ error: "Le nouveau code doit contenir au moins 4 caractères" });
     const stored = await getStoredAdminPin();
-    if (currentPin !== stored) {
-      return res.status(401).json({ error: "Code actuel incorrect" });
-    }
-    await db.run("INSERT INTO app_settings (key, value) VALUES ('admin_pin', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [newPin]);
+    if (currentPin !== stored) return res.status(401).json({ error: "Code actuel incorrect" });
+    const { error } = await db.from("app_settings").upsert({ key: "admin_pin", value: newPin });
+    if (error) throw error;
     res.json({ ok: true });
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.post("/api/users", async (req, res, next) => {
-  try {
-    const { name, isAdmin = false } = req.body;
-    if (!name || typeof name !== "string") {
-      return res.status(400).json({ error: "Name is required" });
-    }
-    const result = await db.run("INSERT INTO users (name, is_admin) VALUES (?, ?)", [name.trim(), isAdmin ? 1 : 0]);
-    res.status(201).json({ id: result.lastID, name: name.trim(), isAdmin: Boolean(isAdmin) });
   } catch (error) {
     next(error);
   }
@@ -131,7 +113,16 @@ app.post("/api/users", async (req, res, next) => {
 app.post("/api/uploads", upload.single("image"), async (req, res, next) => {
   try {
     if (!req.file) return res.status(400).json({ error: "Image file is required" });
-    res.status(201).json({ url: `${PUBLIC_UPLOAD_PREFIX}/${req.file.filename}` });
+    const bucket = process.env.SUPABASE_STORAGE_BUCKET || "people-photos";
+    const ext = (req.file.originalname?.split(".").pop() || "jpg").toLowerCase();
+    const key = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${ext}`;
+    const { error } = await db.storage.from(bucket).upload(key, req.file.buffer, {
+      contentType: req.file.mimetype || "image/jpeg",
+      upsert: false
+    });
+    if (error) throw error;
+    const { data } = db.storage.from(bucket).getPublicUrl(key);
+    res.status(201).json({ url: data?.publicUrl || "" });
   } catch (error) {
     next(error);
   }
@@ -139,13 +130,14 @@ app.post("/api/uploads", upload.single("image"), async (req, res, next) => {
 
 app.get("/api/tree", async (_req, res, next) => {
   try {
-    const people = await db.all(
-      "SELECT id, first_name AS firstName, last_name AS lastName, gender, birth_date AS birthDate, death_date AS deathDate, is_deceased AS isDeceased, photo_url AS photoUrl, notes FROM people WHERE deleted_at IS NULL ORDER BY id ASC"
-    );
-    const relationships = await db.all(
-      "SELECT id, source_person_id AS sourcePersonId, target_person_id AS targetPersonId, relationship_type AS relationshipType FROM relationships WHERE deleted_at IS NULL ORDER BY id ASC"
-    );
-    res.json({ people, relationships });
+    const { data: peopleRows, error: pErr } = await db.from("people").select("*").is("deleted_at", null).order("id", { ascending: true });
+    if (pErr) throw pErr;
+    const { data: relRows, error: rErr } = await db.from("relationships").select("*").is("deleted_at", null).order("id", { ascending: true });
+    if (rErr) throw rErr;
+    res.json({
+      people: (peopleRows || []).map(mapPerson),
+      relationships: (relRows || []).map(mapRelationship)
+    });
   } catch (error) {
     next(error);
   }
@@ -154,76 +146,92 @@ app.get("/api/tree", async (_req, res, next) => {
 app.get("/api/requests", async (req, res, next) => {
   try {
     const status = req.query.status || "pending";
-    const rows = await db.all(
-      `SELECT cr.id, cr.entity_type AS entityType, cr.action_type AS actionType, cr.entity_id AS entityId,
-            cr.payload_json AS payloadJson, cr.status, cr.review_note AS reviewNote, cr.created_at AS createdAt,
-            requester.id AS requesterId, requester.name AS requesterName, reviewer.name AS reviewerName
-     FROM change_requests cr
-     JOIN users requester ON requester.id = cr.requested_by
-     LEFT JOIN users reviewer ON reviewer.id = cr.reviewed_by
-     WHERE cr.status = ?
-     ORDER BY cr.created_at ASC`,
-      [status]
-    );
-    const normalized = rows.map((row) => ({ ...row, payload: JSON.parse(row.payloadJson || "{}") }));
+    const { data, error } = await db
+      .from("change_requests")
+      .select(
+        "id,entity_type,action_type,entity_id,payload_json,status,review_note,created_at,requested_by,reviewed_by,requester:users!change_requests_requested_by_fkey(id,name),reviewer:users!change_requests_reviewed_by_fkey(name)"
+      )
+      .eq("status", status)
+      .order("created_at", { ascending: true });
+    if (error) throw error;
+    const normalized = (data || []).map((row) => ({
+      id: row.id,
+      entityType: row.entity_type,
+      actionType: row.action_type,
+      entityId: row.entity_id,
+      payloadJson: row.payload_json,
+      status: row.status,
+      reviewNote: row.review_note,
+      createdAt: row.created_at,
+      requesterId: row.requested_by,
+      requesterName: row.requester?.name || "Inconnu",
+      reviewerName: row.reviewer?.name || null,
+      payload: JSON.parse(row.payload_json || "{}")
+    }));
     res.json(normalized);
   } catch (error) {
     next(error);
   }
 });
 
-/** Applies payload to people/relationships tables. Returns { newPersonId } when a person row was created. */
 async function mutateGenealogyChange(entityType, actionType, entityId, payload) {
   if (entityType === "person" && actionType === "create") {
-    const insertResult = await db.run(
-      "INSERT INTO people (first_name, last_name, gender, birth_date, death_date, is_deceased, photo_url, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-      [
-        payload.firstName,
-        payload.lastName,
-        payload.gender || null,
-        payload.birthDate || null,
-        personDeathDateOrNull(payload),
-        personIsDeceasedFlag(payload),
-        payload.photoUrl || null,
-        payload.notes || null
-      ]
-    );
-    return { newPersonId: insertResult.lastID };
+    const { data, error } = await db
+      .from("people")
+      .insert({
+        first_name: payload.firstName,
+        last_name: payload.lastName,
+        gender: payload.gender || null,
+        birth_date: payload.birthDate || null,
+        death_date: personDeathDateOrNull(payload),
+        is_deceased: personIsDeceasedFlag(payload),
+        photo_url: payload.photoUrl || null,
+        notes: payload.notes || null
+      })
+      .select("id")
+      .single();
+    if (error) throw error;
+    return { newPersonId: data.id };
   }
   if (entityType === "person" && actionType === "update") {
-    await db.run(
-      "UPDATE people SET first_name = ?, last_name = ?, gender = ?, birth_date = ?, death_date = ?, is_deceased = ?, photo_url = ?, notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL",
-      [
-        payload.firstName,
-        payload.lastName,
-        payload.gender || null,
-        payload.birthDate || null,
-        personDeathDateOrNull(payload),
-        personIsDeceasedFlag(payload),
-        payload.photoUrl || null,
-        payload.notes || null,
-        entityId
-      ]
-    );
+    const { error } = await db
+      .from("people")
+      .update({
+        first_name: payload.firstName,
+        last_name: payload.lastName,
+        gender: payload.gender || null,
+        birth_date: payload.birthDate || null,
+        death_date: personDeathDateOrNull(payload),
+        is_deceased: personIsDeceasedFlag(payload),
+        photo_url: payload.photoUrl || null,
+        notes: payload.notes || null,
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", entityId)
+      .is("deleted_at", null);
+    if (error) throw error;
     return {};
   }
   if (entityType === "person" && actionType === "delete") {
-    await db.run("UPDATE people SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL", [entityId]);
-    await db.run(
-      "UPDATE relationships SET deleted_at = CURRENT_TIMESTAMP WHERE (source_person_id = ? OR target_person_id = ?) AND deleted_at IS NULL",
-      [entityId, entityId]
-    );
+    const now = new Date().toISOString();
+    const { error: pErr } = await db.from("people").update({ deleted_at: now }).eq("id", entityId).is("deleted_at", null);
+    if (pErr) throw pErr;
+    const { error: rErr } = await db.from("relationships").update({ deleted_at: now }).or(`source_person_id.eq.${entityId},target_person_id.eq.${entityId}`).is("deleted_at", null);
+    if (rErr) throw rErr;
     return {};
   }
   if (entityType === "relationship" && actionType === "create") {
-    await db.run(
-      "INSERT INTO relationships (source_person_id, target_person_id, relationship_type) VALUES (?, ?, ?)",
-      [payload.sourcePersonId, payload.targetPersonId, payload.relationshipType]
-    );
+    const { error } = await db.from("relationships").insert({
+      source_person_id: payload.sourcePersonId,
+      target_person_id: payload.targetPersonId,
+      relationship_type: payload.relationshipType
+    });
+    if (error) throw error;
     return {};
   }
   if (entityType === "relationship" && actionType === "delete") {
-    await db.run("UPDATE relationships SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL", [entityId]);
+    const { error } = await db.from("relationships").update({ deleted_at: new Date().toISOString() }).eq("id", entityId).is("deleted_at", null);
+    if (error) throw error;
     return {};
   }
   throw new Error("Unsupported request type");
@@ -232,52 +240,58 @@ async function mutateGenealogyChange(entityType, actionType, entityId, payload) 
 app.post("/api/requests", async (req, res, next) => {
   try {
     const { actorId, entityType, actionType, entityId = null, payload } = req.body;
-    if (!actorId || !entityType || !actionType || !isObject(payload)) {
-      return res.status(400).json({ error: "actorId, entityType, actionType, payload are required" });
-    }
-    if (!["person", "relationship"].includes(entityType)) {
-      return res.status(400).json({ error: "entityType must be person or relationship" });
-    }
-    if (!["create", "update", "delete"].includes(actionType)) {
-      return res.status(400).json({ error: "actionType must be create, update or delete" });
-    }
+    if (!actorId || !entityType || !actionType || !isObject(payload)) return res.status(400).json({ error: "actorId, entityType, actionType, payload are required" });
+    if (!["person", "relationship"].includes(entityType)) return res.status(400).json({ error: "entityType must be person or relationship" });
+    if (!["create", "update", "delete"].includes(actionType)) return res.status(400).json({ error: "actionType must be create, update or delete" });
 
-    const actor = await db.get("SELECT id, is_admin FROM users WHERE id = ?", [actorId]);
-    if (!actor) {
-      return res.status(400).json({ error: "Utilisateur inconnu" });
-    }
+    const { data: actor, error: aErr } = await db.from("users").select("id,is_admin").eq("id", actorId).maybeSingle();
+    if (aErr) throw aErr;
+    if (!actor) return res.status(400).json({ error: "Utilisateur inconnu" });
 
     const shouldApplyImmediately = Boolean(actor.is_admin) || actionType !== "delete";
-
     if (shouldApplyImmediately) {
-      await db.exec("BEGIN IMMEDIATE TRANSACTION");
-      try {
-        const { newPersonId } = await mutateGenealogyChange(entityType, actionType, entityId, payload);
-        const rowEntityId = entityType === "person" && actionType === "create" ? newPersonId : entityId;
-        const ins = actor.is_admin
-          ? await db.run(
-              `INSERT INTO change_requests (entity_type, action_type, entity_id, payload_json, status, requested_by, reviewed_by, reviewed_at)
-               VALUES (?, ?, ?, ?, 'approved', ?, ?, CURRENT_TIMESTAMP)`,
-              [entityType, actionType, rowEntityId, JSON.stringify(payload), actorId, actorId]
-            )
-          : await db.run(
-              `INSERT INTO change_requests (entity_type, action_type, entity_id, payload_json, status, requested_by, reviewed_at, review_note)
-               VALUES (?, ?, ?, ?, 'approved', ?, CURRENT_TIMESTAMP, 'Auto-approuvé: ajout/modification')`,
-              [entityType, actionType, rowEntityId, JSON.stringify(payload), actorId]
-            );
-        await db.exec("COMMIT");
-        return res.status(201).json({ id: ins.lastID, appliedImmediately: true });
-      } catch (err) {
-        await db.exec("ROLLBACK");
-        throw err;
-      }
+      const { newPersonId } = await mutateGenealogyChange(entityType, actionType, entityId, payload);
+      const rowEntityId = entityType === "person" && actionType === "create" ? newPersonId : entityId;
+      const insertPayload = actor.is_admin
+        ? {
+            entity_type: entityType,
+            action_type: actionType,
+            entity_id: rowEntityId,
+            payload_json: JSON.stringify(payload),
+            status: "approved",
+            requested_by: actorId,
+            reviewed_by: actorId,
+            reviewed_at: new Date().toISOString()
+          }
+        : {
+            entity_type: entityType,
+            action_type: actionType,
+            entity_id: rowEntityId,
+            payload_json: JSON.stringify(payload),
+            status: "approved",
+            requested_by: actorId,
+            reviewed_at: new Date().toISOString(),
+            review_note: "Auto-approuvé: ajout/modification"
+          };
+      const { data: reqRow, error: reqErr } = await db.from("change_requests").insert(insertPayload).select("id").single();
+      if (reqErr) throw reqErr;
+      return res.status(201).json({ id: reqRow.id, appliedImmediately: true });
     }
 
-    const result = await db.run(
-      "INSERT INTO change_requests (entity_type, action_type, entity_id, payload_json, status, requested_by) VALUES (?, ?, ?, ?, 'pending', ?)",
-      [entityType, actionType, entityId, JSON.stringify(payload), actorId]
-    );
-    res.status(201).json({ id: result.lastID, appliedImmediately: false });
+    const { data: row, error: pErr } = await db
+      .from("change_requests")
+      .insert({
+        entity_type: entityType,
+        action_type: actionType,
+        entity_id: entityId,
+        payload_json: JSON.stringify(payload),
+        status: "pending",
+        requested_by: actorId
+      })
+      .select("id")
+      .single();
+    if (pErr) throw pErr;
+    res.status(201).json({ id: row.id, appliedImmediately: false });
   } catch (error) {
     next(error);
   }
@@ -285,15 +299,15 @@ app.post("/api/requests", async (req, res, next) => {
 
 const applyApprovedRequest = async (requestRow, adminId) => {
   const payload = JSON.parse(requestRow.payload_json || "{}");
-  const { entity_type: entityType, action_type: actionType, entity_id: entityId } = requestRow;
-  const { newPersonId } = await mutateGenealogyChange(entityType, actionType, entityId, payload);
-  if (newPersonId != null) {
-    await db.run("UPDATE change_requests SET entity_id = ? WHERE id = ?", [newPersonId, requestRow.id]);
-  }
-  await db.run(
-    "UPDATE change_requests SET status = 'approved', reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?",
-    [adminId, requestRow.id]
-  );
+  const { newPersonId } = await mutateGenealogyChange(requestRow.entity_type, requestRow.action_type, requestRow.entity_id, payload);
+  const updates = {
+    status: "approved",
+    reviewed_by: adminId,
+    reviewed_at: new Date().toISOString()
+  };
+  if (newPersonId != null) updates.entity_id = newPersonId;
+  const { error } = await db.from("change_requests").update(updates).eq("id", requestRow.id);
+  if (error) throw error;
 };
 
 app.post("/api/requests/:id/approve", async (req, res, next) => {
@@ -302,32 +316,18 @@ app.post("/api/requests/:id/approve", async (req, res, next) => {
     const { adminId } = req.body;
     if (!adminId) return res.status(400).json({ error: "adminId is required" });
 
-    await db.exec("BEGIN IMMEDIATE TRANSACTION");
-    const adminRow = await db.get("SELECT id FROM users WHERE id = ? AND is_admin = 1", [adminId]);
-    if (!adminRow) {
-      await db.exec("ROLLBACK");
-      return res.status(403).json({ error: "Only admin can approve requests" });
-    }
+    const { data: adminRow, error: adErr } = await db.from("users").select("id").eq("id", adminId).eq("is_admin", 1).maybeSingle();
+    if (adErr) throw adErr;
+    if (!adminRow) return res.status(403).json({ error: "Only admin can approve requests" });
 
-    const requestRow = await db.get("SELECT * FROM change_requests WHERE id = ?", [requestId]);
-    if (!requestRow) {
-      await db.exec("ROLLBACK");
-      return res.status(404).json({ error: "Request not found" });
-    }
-    if (requestRow.status !== "pending") {
-      await db.exec("ROLLBACK");
-      return res.status(409).json({ error: "Only pending requests can be approved" });
-    }
+    const { data: requestRow, error: rErr } = await db.from("change_requests").select("*").eq("id", requestId).maybeSingle();
+    if (rErr) throw rErr;
+    if (!requestRow) return res.status(404).json({ error: "Request not found" });
+    if (requestRow.status !== "pending") return res.status(409).json({ error: "Only pending requests can be approved" });
 
     await applyApprovedRequest(requestRow, adminId);
-    await db.exec("COMMIT");
     res.json({ success: true });
   } catch (error) {
-    try {
-      await db.exec("ROLLBACK");
-    } catch {
-      // no-op
-    }
     next(error);
   }
 });
@@ -337,15 +337,23 @@ app.post("/api/requests/:id/reject", async (req, res, next) => {
     const requestId = Number(req.params.id);
     const { adminId, reviewNote = null } = req.body;
     if (!adminId) return res.status(400).json({ error: "adminId is required" });
-
-    const adminRow = await db.get("SELECT id FROM users WHERE id = ? AND is_admin = 1", [adminId]);
+    const { data: adminRow, error: adErr } = await db.from("users").select("id").eq("id", adminId).eq("is_admin", 1).maybeSingle();
+    if (adErr) throw adErr;
     if (!adminRow) return res.status(403).json({ error: "Only admin can reject requests" });
 
-    const result = await db.run(
-      "UPDATE change_requests SET status = 'rejected', reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP, review_note = ? WHERE id = ? AND status = 'pending'",
-      [adminId, reviewNote, requestId]
-    );
-    if (result.changes === 0) return res.status(404).json({ error: "Pending request not found" });
+    const { data, error } = await db
+      .from("change_requests")
+      .update({
+        status: "rejected",
+        reviewed_by: adminId,
+        reviewed_at: new Date().toISOString(),
+        review_note: reviewNote
+      })
+      .eq("id", requestId)
+      .eq("status", "pending")
+      .select("id");
+    if (error) throw error;
+    if (!data || data.length === 0) return res.status(404).json({ error: "Pending request not found" });
     res.json({ success: true });
   } catch (error) {
     next(error);

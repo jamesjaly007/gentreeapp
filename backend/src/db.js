@@ -1,95 +1,39 @@
-const path = require("path");
-const fs = require("fs/promises");
-const sqlite3 = require("sqlite3");
-const { open } = require("sqlite");
+const { createClient } = require("@supabase/supabase-js");
 require("dotenv").config();
 
-const dbFile = process.env.DB_FILE || "./data/genealogy.sqlite";
-
 async function initDb() {
-  const absoluteDbPath = path.resolve(process.cwd(), dbFile);
-  await fs.mkdir(path.dirname(absoluteDbPath), { recursive: true });
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !supabaseServiceRoleKey) {
+    throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required");
+  }
 
-  const db = await open({
-    filename: absoluteDbPath,
-    driver: sqlite3.Database
+  const db = createClient(supabaseUrl, supabaseServiceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false }
   });
 
-  await db.exec("PRAGMA foreign_keys = ON");
+  // Quick connectivity check.
+  const { error: healthErr } = await db.from("users").select("id").limit(1);
+  if (healthErr) throw healthErr;
 
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      is_admin INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
+  const ensureUser = async (name, isAdmin) => {
+    const { data: existing, error: selErr } = await db.from("users").select("id").eq("name", name).limit(1);
+    if (selErr) throw selErr;
+    if (existing && existing.length) return;
+    const { error: insErr } = await db.from("users").insert({ name, is_admin: isAdmin ? 1 : 0 });
+    if (insErr) throw insErr;
+  };
 
-    CREATE TABLE IF NOT EXISTS people (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      first_name TEXT NOT NULL,
-      last_name TEXT NOT NULL,
-      gender TEXT NULL,
-      birth_date TEXT NULL,
-      death_date TEXT NULL,
-      is_deceased INTEGER NOT NULL DEFAULT 0,
-      photo_url TEXT NULL,
-      notes TEXT NULL,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      deleted_at TEXT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS relationships (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      source_person_id INTEGER NOT NULL,
-      target_person_id INTEGER NOT NULL,
-      relationship_type TEXT NOT NULL,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      deleted_at TEXT NULL,
-      FOREIGN KEY (source_person_id) REFERENCES people(id),
-      FOREIGN KEY (target_person_id) REFERENCES people(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS change_requests (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      entity_type TEXT NOT NULL,
-      action_type TEXT NOT NULL,
-      entity_id INTEGER NULL,
-      payload_json TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'pending',
-      requested_by INTEGER NOT NULL,
-      reviewed_by INTEGER NULL,
-      review_note TEXT NULL,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      reviewed_at TEXT NULL,
-      FOREIGN KEY (requested_by) REFERENCES users(id),
-      FOREIGN KEY (reviewed_by) REFERENCES users(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS app_settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-  `);
+  await ensureUser("Admin", true);
+  await ensureUser("Contributor", false);
 
   const defaultAdminPin = process.env.ADMIN_PIN || "admin";
-  await db.run("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('admin_pin', ?)", [defaultAdminPin]);
-
-  const peopleCols = await db.all("PRAGMA table_info(people)");
-  const peopleColNames = new Set(peopleCols.map((c) => c.name));
-  if (!peopleColNames.has("is_deceased")) {
-    await db.exec("ALTER TABLE people ADD COLUMN is_deceased INTEGER NOT NULL DEFAULT 0");
+  const { data: pinRow, error: pinSelErr } = await db.from("app_settings").select("key").eq("key", "admin_pin").maybeSingle();
+  if (pinSelErr) throw pinSelErr;
+  if (!pinRow) {
+    const { error: pinInsErr } = await db.from("app_settings").insert({ key: "admin_pin", value: defaultAdminPin });
+    if (pinInsErr) throw pinInsErr;
   }
-  if (!peopleColNames.has("death_date")) {
-    await db.exec("ALTER TABLE people ADD COLUMN death_date TEXT NULL");
-  }
-  if (!peopleColNames.has("photo_url")) {
-    await db.exec("ALTER TABLE people ADD COLUMN photo_url TEXT NULL");
-  }
-
-  await db.run("INSERT INTO users (name, is_admin) SELECT 'Admin', 1 WHERE NOT EXISTS (SELECT 1 FROM users WHERE name = 'Admin')");
-  await db.run("INSERT INTO users (name, is_admin) SELECT 'Contributor', 0 WHERE NOT EXISTS (SELECT 1 FROM users WHERE name = 'Contributor')");
 
   return db;
 }
