@@ -247,16 +247,24 @@ app.post("/api/requests", async (req, res, next) => {
       return res.status(400).json({ error: "Utilisateur inconnu" });
     }
 
-    if (actor.is_admin) {
+    const shouldApplyImmediately = Boolean(actor.is_admin) || actionType !== "delete";
+
+    if (shouldApplyImmediately) {
       await db.exec("BEGIN IMMEDIATE TRANSACTION");
       try {
         const { newPersonId } = await mutateGenealogyChange(entityType, actionType, entityId, payload);
         const rowEntityId = entityType === "person" && actionType === "create" ? newPersonId : entityId;
-        const ins = await db.run(
-          `INSERT INTO change_requests (entity_type, action_type, entity_id, payload_json, status, requested_by, reviewed_by, reviewed_at)
-           VALUES (?, ?, ?, ?, 'approved', ?, ?, CURRENT_TIMESTAMP)`,
-          [entityType, actionType, rowEntityId, JSON.stringify(payload), actorId, actorId]
-        );
+        const ins = actor.is_admin
+          ? await db.run(
+              `INSERT INTO change_requests (entity_type, action_type, entity_id, payload_json, status, requested_by, reviewed_by, reviewed_at)
+               VALUES (?, ?, ?, ?, 'approved', ?, ?, CURRENT_TIMESTAMP)`,
+              [entityType, actionType, rowEntityId, JSON.stringify(payload), actorId, actorId]
+            )
+          : await db.run(
+              `INSERT INTO change_requests (entity_type, action_type, entity_id, payload_json, status, requested_by, reviewed_at, review_note)
+               VALUES (?, ?, ?, ?, 'approved', ?, CURRENT_TIMESTAMP, 'Auto-approuvé: ajout/modification')`,
+              [entityType, actionType, rowEntityId, JSON.stringify(payload), actorId]
+            );
         await db.exec("COMMIT");
         return res.status(201).json({ id: ins.lastID, appliedImmediately: true });
       } catch (err) {

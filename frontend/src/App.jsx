@@ -437,7 +437,7 @@ function App() {
 
   const activeUser = users.find((u) => u.id === activeUserId) || null;
   const isAdmin = Boolean(activeUser?.isAdmin);
-  const saveOrRequestLabel = isAdmin ? "Enregistrer" : "Envoyer pour validation";
+  const saveOrRequestLabel = "Enregistrer";
 
   const peopleById = useMemo(() => Object.fromEntries(people.map((p) => [p.id, p])), [people]);
 
@@ -1210,7 +1210,9 @@ function App() {
             </div>
           </div>
           <p className="subtitle">
-            {isAdmin ? "En tant qu'administrateur, vos modifications sont appliquées immédiatement." : "Les modifications ne sont appliquées qu'après validation par un administrateur."}
+            {isAdmin
+              ? "En tant qu'administrateur, vos modifications sont appliquées immédiatement."
+              : "Les ajouts et modifications sont appliqués immédiatement. Les suppressions restent soumises à validation administrateur."}
           </p>
         </div>
       </header>
@@ -1250,8 +1252,7 @@ function App() {
               <span className="tree-help-icon-inline" aria-hidden>
                 <IconTrash />
               </span>
-              ).
-              {isAdmin ? " Vos changements sont enregistrés sans validation." : ""}
+              ). {isAdmin ? "Vos suppressions sont immédiates." : "Les suppressions demandent une validation administrateur."}
             </>
           )}
         </p>
@@ -1620,7 +1621,11 @@ function App() {
           }
         >
           <form id="form-delete-person" onSubmit={handleDeletePersonConfirm}>
-            <p className="modal-lead">Retirer <strong>{deletePerson ? fullName(deletePerson) : "cette personne"}</strong> de l'arbre ?</p>
+            <p className="modal-lead">
+              {isAdmin
+                ? <>Retirer <strong>{deletePerson ? fullName(deletePerson) : "cette personne"}</strong> de l'arbre ?</>
+                : <>Envoyer une demande de suppression pour <strong>{deletePerson ? fullName(deletePerson) : "cette personne"}</strong> ?</>}
+            </p>
           </form>
         </Modal>
       )}
