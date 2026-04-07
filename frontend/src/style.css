@@ -270,6 +270,13 @@ body {
   box-shadow: 0 12px 28px rgba(184, 134, 11, 0.4);
 }
 
+.btn-add-tree:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: 0 4px 12px rgba(184, 134, 11, 0.2);
+}
+
 /* Tree section */
 .tree-card {
   background: var(--bg-card);
@@ -508,6 +515,31 @@ body {
   overflow-y: hidden;
   padding-bottom: 4px;
   -webkit-overflow-scrolling: touch;
+}
+
+.tree-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  min-height: 220px;
+  padding: 40px 20px 48px;
+  color: var(--ink-muted);
+}
+
+.tree-loading-spinner {
+  width: 44px;
+  height: 44px;
+  border: 3px solid var(--sage-soft);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: btn-spin 0.7s linear infinite;
+}
+
+.tree-loading-text {
+  font-size: 15px;
+  font-family: var(--font-ui);
 }
 
 .tree-empty {

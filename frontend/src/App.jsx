@@ -465,6 +465,7 @@ function App() {
   const [photoPreview, setPhotoPreview] = useState(null);
   const [modalSubmitting, setModalSubmitting] = useState(false);
   const [pendingAction, setPendingAction] = useState(null);
+  const [initialLoading, setInitialLoading] = useState(true);
 
   const activeUser = users.find((u) => u.id === activeUserId) || null;
   const isAdmin = Boolean(activeUser?.isAdmin);
@@ -669,7 +670,19 @@ function App() {
   }
 
   useEffect(() => {
-    loadAll().catch((error) => setMessage(error.response?.data?.error || error.message, "error"));
+    let cancelled = false;
+    (async () => {
+      try {
+        await loadAll();
+      } catch (error) {
+        if (!cancelled) setMessage(error.response?.data?.error || error.message, "error");
+      } finally {
+        if (!cancelled) setInitialLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -1293,10 +1306,24 @@ function App() {
       <section className="tree-card">
         <div className="tree-card-head">
           <h2 className="tree-card-title">Votre famille</h2>
-          <button type="button" className="btn-add-tree" onClick={openAddModal} title="Ajouter une personne" aria-label="Ajouter une personne">
+          <button
+            type="button"
+            className="btn-add-tree"
+            onClick={openAddModal}
+            title="Ajouter une personne"
+            aria-label="Ajouter une personne"
+            disabled={initialLoading}
+          >
             <IconPlus />
           </button>
         </div>
+        {initialLoading ? (
+          <div className="tree-loading" role="status" aria-live="polite" aria-busy="true">
+            <span className="tree-loading-spinner" aria-hidden />
+            <span className="tree-loading-text">Chargement de l’arbre…</span>
+          </div>
+        ) : (
+          <>
         <p className="tree-help">
           {familyBranchStack.length > 0 ? (
             <>
@@ -1438,6 +1465,8 @@ function App() {
               </>
             )}
           </div>
+        )}
+          </>
         )}
       </section>
 
