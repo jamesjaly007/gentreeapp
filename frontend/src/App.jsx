@@ -1,7 +1,9 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 
-const API_ORIGIN = "http://localhost:4000";
+const API_ORIGIN =
+  (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_API_ORIGIN) ||
+  `${window.location.protocol}//${window.location.hostname}:4000`;
 const api = axios.create({ baseURL: `${API_ORIGIN}/api` });
 
 const ADMIN_SESSION_KEY = "genealogyAdminSession";
