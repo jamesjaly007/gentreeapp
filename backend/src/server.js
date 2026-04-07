@@ -4,8 +4,33 @@ const multer = require("multer");
 const { initDb } = require("./db");
 
 const app = express();
-app.use(cors());
+app.use(
+  cors({
+    origin: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"]
+  })
+);
 app.use(express.json());
+
+let dbInitPromise = null;
+function ensureDbConnected() {
+  if (!dbInitPromise) {
+    dbInitPromise = initDb().then((client) => {
+      db = client;
+    });
+  }
+  return dbInitPromise;
+}
+
+app.use(async (_req, _res, next) => {
+  try {
+    await ensureDbConnected();
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -367,13 +392,17 @@ app.use((error, _req, res, _next) => {
 });
 
 async function start() {
-  db = await initDb();
+  await ensureDbConnected();
   app.listen(PORT, () => {
     console.log(`API server listening on http://localhost:${PORT}`);
   });
 }
 
-start().catch((error) => {
-  console.error("Failed to start server:", error);
-  process.exit(1);
-});
+module.exports = app;
+
+if (require.main === module && !process.env.VERCEL) {
+  start().catch((error) => {
+    console.error("Failed to start server:", error);
+    process.exit(1);
+  });
+}
