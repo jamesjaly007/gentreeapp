@@ -22,8 +22,6 @@ const localApiOrigin =
 const API_ORIGIN = normalizeApiOrigin(envApiOrigin || localApiOrigin);
 const api = axios.create({ baseURL: API_ORIGIN ? `${API_ORIGIN}/api` : "/api" });
 
-const ADMIN_SESSION_KEY = "genealogyAdminSession";
-
 const EMPTY_PERSON_FORM = {
   firstName: "",
   lastName: "",
@@ -38,10 +36,6 @@ const EMPTY_PERSON_FORM = {
 function idContributeur(users) {
   const u = users.find((x) => !x.isAdmin);
   return u?.id ?? users[0]?.id ?? 0;
-}
-
-function idAdministrateur(users) {
-  return users.find((x) => x.isAdmin)?.id ?? 0;
 }
 
 /** Ancestors along parent_child edges (child → parents, recursively). */
@@ -320,32 +314,6 @@ function IconBranchFocus() {
   );
 }
 
-function IconBell() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-    </svg>
-  );
-}
-
-function IconEyeOpen() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
-      <path d="M15 12a3 3 0 11-6 0 3 3 0 0 1 6 0z" />
-    </svg>
-  );
-}
-
-function IconEyeClosed() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0 1 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639M6.228 6.228L3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88" />
-    </svg>
-  );
-}
-
 function IconMsgSuccess() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -379,28 +347,11 @@ function MessageIcon({ variant }) {
   return <IconMsgInfo />;
 }
 
-function PinField({ label, id, autoComplete, placeholder, value, onChange, visible, onToggle }) {
-  return (
-    <>
-      <label className="field-label" htmlFor={id}>
-        {label}
-      </label>
-      <div className="password-field-wrap">
-        <input id={id} type={visible ? "text" : "password"} autoComplete={autoComplete} value={value} onChange={onChange} placeholder={placeholder} />
-        <button type="button" className="password-toggle" onClick={onToggle} aria-label={visible ? "Masquer le code" : "Afficher le code"} aria-pressed={visible}>
-          {visible ? <IconEyeClosed /> : <IconEyeOpen />}
-        </button>
-      </div>
-    </>
-  );
-}
-
 function App() {
   const [users, setUsers] = useState([]);
   const [activeUserId, setActiveUserId] = useState(0);
   const [people, setPeople] = useState([]);
   const [relationships, setRelationships] = useState([]);
-  const [pendingRequests, setPendingRequests] = useState([]);
   const [toast, setToast] = useState(null);
   const [toastOpen, setToastOpen] = useState(false);
 
@@ -437,13 +388,6 @@ function App() {
   }
 
   const [modal, setModal] = useState(null);
-  const [adminPinDraft, setAdminPinDraft] = useState("");
-  const [showAdminPin, setShowAdminPin] = useState(false);
-  const [changePin, setChangePin] = useState({ current: "", next: "", confirm: "" });
-  const [showChangePinFields, setShowChangePinFields] = useState({ current: false, next: false, confirm: false });
-  const [adminLoginError, setAdminLoginError] = useState("");
-  const [changePinError, setChangePinError] = useState("");
-
   const [newPerson, setNewPerson] = useState(() => ({ ...EMPTY_PERSON_FORM }));
   const [newPhotoUploading, setNewPhotoUploading] = useState(false);
   const [editPersonId, setEditPersonId] = useState(0);
@@ -464,11 +408,8 @@ function App() {
   const [detailsPersonId, setDetailsPersonId] = useState(0);
   const [photoPreview, setPhotoPreview] = useState(null);
   const [modalSubmitting, setModalSubmitting] = useState(false);
-  const [pendingAction, setPendingAction] = useState(null);
   const [initialLoading, setInitialLoading] = useState(true);
 
-  const activeUser = users.find((u) => u.id === activeUserId) || null;
-  const isAdmin = Boolean(activeUser?.isAdmin);
   const saveOrRequestLabel = "Enregistrer";
 
   const peopleById = useMemo(() => Object.fromEntries(people.map((p) => [p.id, p])), [people]);
@@ -662,11 +603,10 @@ function App() {
   );
 
   async function loadAll() {
-    const [usersRes, treeRes, requestRes] = await Promise.all([api.get("/users"), api.get("/tree"), api.get("/requests?status=pending")]);
+    const [usersRes, treeRes] = await Promise.all([api.get("/users"), api.get("/tree")]);
     setUsers(usersRes.data);
     setPeople(treeRes.data.people);
     setRelationships(treeRes.data.relationships);
-    setPendingRequests(requestRes.data);
   }
 
   useEffect(() => {
@@ -687,11 +627,8 @@ function App() {
 
   useEffect(() => {
     if (!users.length) return;
-    const enAdmin = sessionStorage.getItem(ADMIN_SESSION_KEY) === "true";
-    const adminId = idAdministrateur(users);
     const contribId = idContributeur(users);
-    const id = enAdmin && adminId ? adminId : contribId;
-    if (id) setActiveUserId(id);
+    if (contribId) setActiveUserId(contribId);
   }, [users]);
 
   useEffect(() => {
@@ -748,7 +685,6 @@ function App() {
 
   function closeModal() {
     setModalSubmitting(false);
-    setPendingAction(null);
     setModal(null);
   }
 
@@ -762,59 +698,6 @@ function App() {
     setPhotoPreview(null);
   }
 
-  async function connecterAdmin(e) {
-    e.preventDefault();
-    const adminId = idAdministrateur(users);
-    if (!adminId) {
-      setAdminLoginError("Aucun compte administrateur trouvé.");
-      return;
-    }
-    setModalSubmitting(true);
-    try {
-      await api.post("/admin/verify-pin", { pin: adminPinDraft });
-      sessionStorage.setItem(ADMIN_SESSION_KEY, "true");
-      setActiveUserId(adminId);
-      setAdminPinDraft("");
-      setShowAdminPin(false);
-      setAdminLoginError("");
-      closeModal();
-      setMessage("Vous êtes connecté en tant qu'administrateur.", "success");
-    } catch (err) {
-      setAdminLoginError(err.response?.data?.error || "Code administrateur incorrect.");
-    } finally {
-      setModalSubmitting(false);
-    }
-  }
-
-  async function soumettreChangementCode(e) {
-    e.preventDefault();
-    if (changePin.next !== changePin.confirm) {
-      setChangePinError("La confirmation ne correspond pas au nouveau code.");
-      return;
-    }
-    setModalSubmitting(true);
-    try {
-      await api.post("/admin/change-pin", { currentPin: changePin.current, newPin: changePin.next });
-      setChangePin({ current: "", next: "", confirm: "" });
-      setShowChangePinFields({ current: false, next: false, confirm: false });
-      setChangePinError("");
-      closeModal();
-      setMessage("Code administrateur mis à jour.", "success");
-    } catch (err) {
-      const msg = err.response?.data?.error || err.message || "Une erreur s'est produite.";
-      setChangePinError(msg);
-    } finally {
-      setModalSubmitting(false);
-    }
-  }
-
-  function quitterAdmin() {
-    sessionStorage.removeItem(ADMIN_SESSION_KEY);
-    const cid = idContributeur(users);
-    if (cid) setActiveUserId(cid);
-    setMessage("Vous êtes de retour en mode famille.", "info");
-  }
-
   async function uploadPersonPhoto(file) {
     const fd = new FormData();
     fd.append("image", file);
@@ -826,35 +709,9 @@ function App() {
 
   async function submitRequest(entityType, actionType, entityId, payload) {
     if (!activeUserId) return setMessage("Chargement en cours…", "info");
-    const { data } = await api.post("/requests", { actorId: activeUserId, entityType, actionType, entityId, payload });
-    setMessage(data.appliedImmediately ? "Modification enregistrée." : "Demande envoyée — en attente de validation par un administrateur.", "success");
+    await api.post("/requests", { actorId: activeUserId, entityType, actionType, entityId, payload });
+    setMessage("Modification enregistrée.", "success");
     await loadAll();
-  }
-
-  async function approveRequest(requestId) {
-    if (!activeUserId || pendingAction) return;
-    setPendingAction({ id: requestId, kind: "approve" });
-    try {
-      await api.post(`/requests/${requestId}/approve`, { adminId: activeUserId });
-      await loadAll();
-    } catch (err) {
-      setMessage(err.response?.data?.error || err.message, "error");
-    } finally {
-      setPendingAction(null);
-    }
-  }
-
-  async function rejectRequest(requestId) {
-    if (!activeUserId || pendingAction) return;
-    setPendingAction({ id: requestId, kind: "reject" });
-    try {
-      await api.post(`/requests/${requestId}/reject`, { adminId: activeUserId, reviewNote: "Refusé depuis l'application." });
-      await loadAll();
-    } catch (err) {
-      setMessage(err.response?.data?.error || err.message, "error");
-    } finally {
-      setPendingAction(null);
-    }
   }
 
   function fullName(person) {
@@ -986,18 +843,16 @@ function App() {
         entityId: null,
         payload: { sourcePersonId: parent1Id, targetPersonId: childId, relationshipType: "parent_child" }
       });
-      let appliedImmediately = Boolean(d1.appliedImmediately);
       if (parent2Id) {
-        const { data: d2 } = await api.post("/requests", {
+        await api.post("/requests", {
           actorId: activeUserId,
           entityType: "relationship",
           actionType: "create",
           entityId: null,
           payload: { sourcePersonId: parent2Id, targetPersonId: childId, relationshipType: "parent_child" }
         });
-        appliedImmediately = appliedImmediately && Boolean(d2.appliedImmediately);
       }
-      setMessage(appliedImmediately ? "Modification enregistrée." : "Demande envoyée — en attente de validation par un administrateur.", "success");
+      setMessage("Modification enregistrée.", "success");
       setParent1Id(0);
       setParent2Id(0);
       setChildId(0);
@@ -1083,32 +938,6 @@ function App() {
     setParent2Id((cur) => (cur ? cur : firstLinkedPartnerId(baseParent1, partnerMap)));
   }, [modal, childAnchorParentId, parent1Id, partnerMap]);
 
-  // ADMIN auth + requests UI functions and remaining UI are unchanged from our working version.
-  // NOTE: For brevity, if anything is missing after restore, we can re-add quickly.
-
-  function requestTitle(request) {
-    const actionMap = { create: "Ajouter", update: "Modifier", delete: "Supprimer" };
-    const entityMap = { person: "une personne", relationship: "un lien" };
-    return `${actionMap[request.actionType] || request.actionType} ${entityMap[request.entityType] || request.entityType}`;
-  }
-
-  function requestDetails(request) {
-    const payload = request.payload || {};
-    if (request.entityType === "person") {
-      const firstName = payload.firstName || "";
-      const lastName = payload.lastName || "";
-      const full = `${firstName} ${lastName}`.trim();
-      if (request.actionType === "delete") return "Retirer cette personne de l'arbre.";
-      const dec = payload.isDeceased ? " — décédé(e)" : "";
-      return full ? `Personne : ${full}${dec}` : "Détails de la personne transmis.";
-    }
-    if (request.entityType === "relationship") {
-      if (payload.relationshipType === "partner") return "Lier deux personnes en couple.";
-      if (payload.relationshipType === "parent_child") return "Relier un ou deux parents à un enfant.";
-    }
-    return "Demande en attente d'examen.";
-  }
-
   const deletePerson = peopleById[deletePersonId];
   const detailPerson = detailsPersonId ? peopleById[detailsPersonId] : null;
   const focusBranchPersonId = familyBranchStack.length ? familyBranchStack[familyBranchStack.length - 1] : null;
@@ -1186,8 +1015,8 @@ function App() {
             <button
               type="button"
               className="icon-btn icon-btn-danger"
-              title={isAdmin ? "Retirer la personne" : "Demander la suppression"}
-              aria-label={isAdmin ? "Retirer la personne" : "Demander la suppression de la personne"}
+              title="Retirer la personne"
+              aria-label="Retirer la personne"
               onClick={(e) => {
                 e.stopPropagation();
                 openDeleteModal(person);
@@ -1258,47 +1087,10 @@ function App() {
               <p className="app-brand-kicker">Mémoire familiale</p>
               <h1>Arbre généalogique (Dima Thérèse)</h1>
             </div>
-            <div className="header-actions">
-              <button type="button" className="btn-bell" onClick={() => setModal("pending")} title="Demandes à valider" aria-label="Demandes à valider">
-                <IconBell />
-                {pendingRequests.length > 0 ? <span className="btn-bell-badge">{pendingRequests.length > 99 ? "99+" : pendingRequests.length}</span> : null}
-              </button>
-              {isAdmin ? (
-                <>
-                  <button
-                    type="button"
-                    className="btn-admin-logout"
-                    onClick={() => {
-                      setChangePinError("");
-                      setModal("changeAdminPin");
-                    }}
-                    title="Changer le code administrateur"
-                  >
-                    Changer le code
-                  </button>
-                  <button type="button" className="btn-admin-logout" onClick={quitterAdmin} title="Quitter l'espace administrateur">
-                    Déconnexion
-                  </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  className="btn-admin-logout"
-                  onClick={() => {
-                    setAdminLoginError("");
-                    setModal("adminLogin");
-                  }}
-                  title="Connexion administrateur"
-                >
-                  Connexion administrateur
-                </button>
-              )}
-            </div>
+            <div className="header-actions" />
           </div>
           <p className="subtitle">
-            {isAdmin
-              ? "En tant qu'administrateur, vos modifications sont appliquées immédiatement."
-              : "Les ajouts et modifications sont appliqués immédiatement. Les suppressions restent soumises à validation administrateur."}
+            Les ajouts, modifications et suppressions sont appliqués immédiatement.
           </p>
         </div>
       </header>
@@ -1352,7 +1144,7 @@ function App() {
               <span className="tree-help-icon-inline" aria-hidden>
                 <IconTrash />
               </span>
-              ). {isAdmin ? "Vos suppressions sont immédiates." : "Les suppressions demandent une validation administrateur."}
+              ). Les suppressions sont immédiates pour tous les utilisateurs.
             </>
           )}
         </p>
@@ -1742,7 +1534,7 @@ function App() {
               </button>
               <button type="submit" form="form-delete-person" className="danger" disabled={modalSubmitting}>
                 <BtnSubmitContents loading={modalSubmitting}>
-                  {isAdmin ? "Retirer de l'arbre" : "Demander la suppression"}
+                  Retirer de l'arbre
                 </BtnSubmitContents>
               </button>
             </>
@@ -1750,9 +1542,7 @@ function App() {
         >
           <form id="form-delete-person" onSubmit={handleDeletePersonConfirm}>
             <p className="modal-lead">
-              {isAdmin
-                ? <>Retirer <strong>{deletePerson ? fullName(deletePerson) : "cette personne"}</strong> de l'arbre ?</>
-                : <>Envoyer une demande de suppression pour <strong>{deletePerson ? fullName(deletePerson) : "cette personne"}</strong> ?</>}
+              <>Retirer <strong>{deletePerson ? fullName(deletePerson) : "cette personne"}</strong> de l'arbre ?</>
             </p>
           </form>
         </Modal>
@@ -1871,199 +1661,6 @@ function App() {
               ))}
             </select>
           </form>
-        </Modal>
-      )}
-
-      {modal === "adminLogin" && (
-        <Modal
-          title="Connexion administrateur"
-          onClose={() => {
-            setAdminPinDraft("");
-            setShowAdminPin(false);
-            setAdminLoginError("");
-            closeModal();
-          }}
-          closeDisabled={modalSubmitting}
-          footer={
-            <>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => {
-                  setAdminPinDraft("");
-                  setShowAdminPin(false);
-                  setAdminLoginError("");
-                  closeModal();
-                }}
-                disabled={modalSubmitting}
-              >
-                Annuler
-              </button>
-              <button type="submit" form="form-admin-login" disabled={modalSubmitting}>
-                <BtnSubmitContents loading={modalSubmitting}>Valider</BtnSubmitContents>
-              </button>
-            </>
-          }
-        >
-          <form id="form-admin-login" onSubmit={connecterAdmin}>
-            {adminLoginError ? (
-              <div className="modal-error" role="alert">
-                <span className="modal-error-icon" aria-hidden>
-                  <IconMsgError />
-                </span>
-                <span>{adminLoginError}</span>
-              </div>
-            ) : null}
-            <PinField
-              label="Code administrateur"
-              id="admin-pin-input"
-              autoComplete="current-password"
-              placeholder="••••••••"
-              value={adminPinDraft}
-              onChange={(e) => {
-                setAdminPinDraft(e.target.value);
-                setAdminLoginError("");
-              }}
-              visible={showAdminPin}
-              onToggle={() => setShowAdminPin((v) => !v)}
-            />
-          </form>
-        </Modal>
-      )}
-
-      {modal === "changeAdminPin" && (
-        <Modal
-          title="Changer le code administrateur"
-          onClose={() => {
-            setChangePin({ current: "", next: "", confirm: "" });
-            setShowChangePinFields({ current: false, next: false, confirm: false });
-            setChangePinError("");
-            closeModal();
-          }}
-          closeDisabled={modalSubmitting}
-          footer={
-            <>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => {
-                  setChangePin({ current: "", next: "", confirm: "" });
-                  setShowChangePinFields({ current: false, next: false, confirm: false });
-                  setChangePinError("");
-                  closeModal();
-                }}
-                disabled={modalSubmitting}
-              >
-                Annuler
-              </button>
-              <button type="submit" form="form-change-pin" disabled={modalSubmitting}>
-                <BtnSubmitContents loading={modalSubmitting}>Enregistrer</BtnSubmitContents>
-              </button>
-            </>
-          }
-        >
-          <form id="form-change-pin" onSubmit={soumettreChangementCode}>
-            <p className="modal-lead">Au moins 4 caractères pour le nouveau code.</p>
-            {changePinError ? (
-              <div className="modal-error" role="alert">
-                <span className="modal-error-icon" aria-hidden>
-                  <IconMsgError />
-                </span>
-                <span>{changePinError}</span>
-              </div>
-            ) : null}
-            <PinField
-              label="Code actuel"
-              id="change-pin-current"
-              autoComplete="current-password"
-              value={changePin.current}
-              onChange={(e) => {
-                setChangePin({ ...changePin, current: e.target.value });
-                setChangePinError("");
-              }}
-              visible={showChangePinFields.current}
-              onToggle={() => setShowChangePinFields((v) => ({ ...v, current: !v.current }))}
-            />
-            <PinField
-              label="Nouveau code"
-              id="change-pin-next"
-              autoComplete="new-password"
-              value={changePin.next}
-              onChange={(e) => {
-                setChangePin({ ...changePin, next: e.target.value });
-                setChangePinError("");
-              }}
-              visible={showChangePinFields.next}
-              onToggle={() => setShowChangePinFields((v) => ({ ...v, next: !v.next }))}
-            />
-            <PinField
-              label="Confirmer le nouveau code"
-              id="change-pin-confirm"
-              autoComplete="new-password"
-              value={changePin.confirm}
-              onChange={(e) => {
-                setChangePin({ ...changePin, confirm: e.target.value });
-                setChangePinError("");
-              }}
-              visible={showChangePinFields.confirm}
-              onToggle={() => setShowChangePinFields((v) => ({ ...v, confirm: !v.confirm }))}
-            />
-          </form>
-        </Modal>
-      )}
-
-      {modal === "pending" && (
-        <Modal
-          title="Demandes en attente"
-          onClose={closeModal}
-          closeDisabled={Boolean(pendingAction)}
-          footer={
-            <button type="button" className="btn-secondary" onClick={closeModal} disabled={Boolean(pendingAction)}>
-              Fermer
-            </button>
-          }
-        >
-          {pendingRequests.length === 0 ? (
-            <p>Aucune demande en attente.</p>
-          ) : (
-            pendingRequests.map((r) => {
-              const rowBusy = pendingAction?.id === r.id;
-              const approveBusy = rowBusy && pendingAction?.kind === "approve";
-              const rejectBusy = rowBusy && pendingAction?.kind === "reject";
-              return (
-                <div key={r.id} className="pending-request-row">
-                  <strong>{requestTitle(r)}</strong>
-                  <div className="request-meta">{requestDetails(r)}</div>
-                  {isAdmin ? (
-                    <div className="actions">
-                      <button type="button" onClick={() => approveRequest(r.id)} disabled={Boolean(pendingAction)}>
-                        {approveBusy ? (
-                          <span className="btn-submit-inner">
-                            <span className="btn-spinner" aria-hidden />
-                            <span>En cours…</span>
-                          </span>
-                        ) : (
-                          "Accepter"
-                        )}
-                      </button>
-                      <button type="button" className="danger" onClick={() => rejectRequest(r.id)} disabled={Boolean(pendingAction)}>
-                        {rejectBusy ? (
-                          <span className="btn-submit-inner">
-                            <span className="btn-spinner" aria-hidden />
-                            <span>En cours…</span>
-                          </span>
-                        ) : (
-                          "Refuser"
-                        )}
-                      </button>
-                    </div>
-                  ) : (
-                    <span className="request-wait">En attente de validation par un administrateur.</span>
-                  )}
-                </div>
-              );
-            })
-          )}
         </Modal>
       )}
 

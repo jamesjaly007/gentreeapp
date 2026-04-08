@@ -273,7 +273,7 @@ app.post("/api/requests", async (req, res, next) => {
     if (aErr) throw aErr;
     if (!actor) return res.status(400).json({ error: "Utilisateur inconnu" });
 
-    const shouldApplyImmediately = Boolean(actor.is_admin) || actionType !== "delete";
+    const shouldApplyImmediately = true;
     if (shouldApplyImmediately) {
       const { newPersonId } = await mutateGenealogyChange(entityType, actionType, entityId, payload);
       const rowEntityId = entityType === "person" && actionType === "create" ? newPersonId : entityId;
@@ -296,7 +296,7 @@ app.post("/api/requests", async (req, res, next) => {
             status: "approved",
             requested_by: actorId,
             reviewed_at: new Date().toISOString(),
-            review_note: "Auto-approuvé: ajout/modification"
+            review_note: "Auto-approuvé"
           };
       const { data: reqRow, error: reqErr } = await db.from("change_requests").insert(insertPayload).select("id").single();
       if (reqErr) throw reqErr;
